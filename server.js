@@ -27,7 +27,9 @@ app.use(bodyParser.json({ type: "application/vnd.api+json" }));
 app.use(express.static("public"));
 
 // Database configuration with mongoose
-mongoose.connect("mongodb://localhost/news-scraper");
+//mongoose.connect("mongodb://localhost/news-scraper");
+mongoose.connect("mongodb://heroku_8jdf97hd:b6m93qckqvqrejnbq6k1i0kkqe@ds131900.mlab.com:31900/heroku_8jdf97hd");
+
 var db = mongoose.connection;
 
 // Show any mongoose errors
