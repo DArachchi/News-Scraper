@@ -4,7 +4,14 @@ var expresshbs = require("express-handlebars")
 var request = require("request");
 var cheerio = require("cheerio");
 var mongoose = require("mongoose");
-var bodyParser = require("body-parser");;
+var bodyParser = require("body-parser");
+
+// Requiring our note and article models
+var Note = require("./models/note.js");
+var Article = require("./models/article.js");
+
+// Set mongoose to leverage built in JavaScript ES6 Promises
+mongoose.Promise = Promise;
 
 // Initialize Express
 var app = express();
@@ -16,37 +23,108 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.text());
 app.use(bodyParser.json({ type: "application/vnd.api+json" }));
 
-function getNews() {
-  // Make a request call to grab the HTML body from the site of your choice
-  request('http://news.google.com', function (error, response, html) {
+// Make public a static directory
+app.use(express.static("public"));
 
-  	// Load the HTML into cheerio and save it to a variable
-    // '$' becomes a shorthand for cheerio's selector commands, much like jQuery's '$'
-    var $ = cheerio.load(html);
+// Database configuration with mongoose
+mongoose.connect("mongodb://localhost/news-scraper");
+var db = mongoose.connection;
 
-    // An empty array to save the data that we'll scrape
-    var result = [];
+// Show any mongoose errors
+db.on("error", function(error) {
+	console.log("Mongoose Error: ", error);
+});
 
-    // Select each instance of the HTML body that you want to scrape
-    // NOTE: Cheerio selectors function similarly to jQuery's selectors, 
-    // but be sure to visit the package's npm page to see how it works
-    $('span.titletext').each(function(i, element){
+// Once logged in to the db through mongoose, log a success message
+db.once("open", function() {
+	console.log("Mongoose connection successful.");
+});
 
-      var link = $(element).parent().attr("href");
-      var title = $(element).parent().text();
+// GET request to scrape Bring a Trailer for new articles and store in database
+app.get("/scrape", function(req, res) {
+	// First, we grab the body of the html with request
+	request("http://bringatrailer.com", function (error, response, html) {
+		// Load the HTML into cheerio and save it to a variable
+		var $ = cheerio.load(html);
 
-      // Save these results in an object that we'll push into the result array we defined earlier
-      result.push({
-        title: title,
-        link: link
-      });
-      });
-    console.log(result);
-  });
-}
+		// An empty array to save the data that we'll scrape
+		var result = [];
+
+		// Select each instance of the HTML body that you want to scrape
+		// NOTE: Cheerio selectors function similarly to jQuery's selectors, 
+		// but be sure to visit the package's npm page to see how it works
+		$('a.post-title-link').each(function(i, element){
+			// Save an empty result object
+			var result = {};
+			result.title = $(element).text();
+			result.link = $(element).attr("href");
+
+			// Using our Article model, create a new entry
+			var entry = new Article(result);
+
+			entry.save(function(err, doc) {
+				// Log any errors
+				if (err) {
+					console.log(err);
+				}
+				// Or log the doc
+				else {
+					console.log(doc);
+				}
+			});
+		});
+		res.send("Scrape Complete");
+	});
+});
+
+// GET route to pull articles from database
+app.get("/articles", function(req, res) {
+	Article.find({}, function(error, doc) {
+		if (error) {
+			res.send(error);
+		}
+		else {
+			res.send(doc);
+		}
+	})
+});
+
+// This will grab an article by it's ObjectId
+app.get("/articles/:id", function(req, res) {
+	Article.findById(req.params.id)
+	.populate("note")
+	.exec(function(error, doc) {
+		if (error) {
+			res.send(error);
+		}
+		else {
+			res.send(doc);
+		}
+	});
+});
+
+// POST route to create a new note or replace an existing note
+app.post("/articles/:id", function(req, res) {
+	var newNote = new Note(req.body);
+	newNote.save(function(error, doc) {
+		if (error) {
+			res.send(error);
+		}
+		else {
+			Article.findOneAndUpdate({"_id": req.params.id}, {"note":doc._id })
+			.exec(function(err, doc) {
+				if (error) {
+					console.log(err);
+				}
+				else {
+					res.send(doc);
+				}
+			});
+		}
+	});
+});
 
 // Starts up express app
 app.listen(PORT, function() {
-  console.log("App listening on PORT " + PORT);
-  getNews();
+	console.log("App listening on PORT " + PORT);
 });
